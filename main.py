@@ -1,4 +1,6 @@
+import copy
 import random
+import time
 from constants import *
 
 import pygame
@@ -18,17 +20,17 @@ def listrange(x:list):
                 return [[x] for x in range(lst[d])]
         return loop(x)
         
-seed = 25
 
-random.seed(seed)
+
             
 
 class GameController():
-    def __init__(self) -> None:
+    def __init__(self, random_seed=True) -> None:
         pygame.init()# init pygame
         pygame.display.set_caption("Minesweeper")
-        self.screen = pygame.display.set_mode((2*SIDE+GRIDSIZE[0]*CELLSIZE,2*SIDE+GRIDSIZE[1]*CELLSIZE))
+        self.screen = pygame.display.set_mode((2*SIDE+GRIDSIZE[1]*CELLSIZE,2*SIDE+GRIDSIZE[0]*CELLSIZE))
         pygame.Surface.fill(self.screen, (255,255,255))
+        self.random_seed = random_seed
         self.start_game()
         self.font = pygame.font.SysFont('SF', 32)
 
@@ -37,12 +39,21 @@ class GameController():
     def start_game(self):
         self.grid = np.zeros(GRIDSIZE, np.uint8) # 0-8 for how many mines around, 9 for mines
         self.visible = np.zeros(GRIDSIZE, np.uint8) # 0 for not visible, 1 for visible, 2 for flag
+        if self.random_seed:
+            self.seed = random.randint(0,1000000)
+        else:
+            self.seed = 25
+        random.seed(self.seed)
+
         self.all_pos = [(x,y) for x,y in listrange(GRIDSIZE)]
         self.all_pos_shuffled = self.all_pos
         random.shuffle(self.all_pos_shuffled)
         self.mine_pos = self.all_pos_shuffled[:MINES]
         self.flags_remaining = MINES
+        self.start_time = time.time()
 
+        
+        
         to_add = []
         for (ox,oy) in self.mine_pos:
             for x in range(ox-1, ox+2):
@@ -57,12 +68,43 @@ class GameController():
         for x,y in self.mine_pos:
             self.grid[x,y] = 9
 
+        print(self.grid)
+
     def show(self, pos):
-        # if self.grid[pos] == 0:
-        #     self.visible[pos] = 1
-        # elif 1 <= self.grid[pos] <= 8:
-        #     self.visible[pos] = 1
-        self.visible[pos] = 1
+        if self.grid[pos] == 0:
+            def show_around(pos, grid, visible):
+                x_pos = [max(0,pos[1]-1),min(pos[1]+2, GRIDSIZE[1])]
+                y_pos = [max(0,pos[0]-1),min(pos[0]+2, GRIDSIZE[0])]
+                # visible[x_pos[0]:x_pos[1],y_pos[0]:y_pos[1]] = 1
+                grid_part = copy.copy(grid[y_pos[0]:y_pos[1],x_pos[0]:x_pos[1]])
+                # visible_part = visible[x_pos[0]:x_pos[1],y_pos[0]:y_pos[1]]
+                
+                to_return = []
+                visible[pos] = 1
+
+                for i, x in enumerate(grid_part):
+                    for i2, y in enumerate(x):
+                        posx = x_pos[0]+i2
+                        posy = y_pos[0]+i
+                        if visible[posy,posx] == 0:
+                            if y == 0:
+                                to_return.append((posy,posx))
+                        visible[posy,posx] = 1
+
+                return to_return
+            # self.visible[pos] = 1
+            to_run = [pos]
+            while len(to_run) > 0:
+                next_r = to_run.pop(0)
+                to_run+=show_around(next_r, self.grid, self.visible)
+                
+
+        elif 1 <= self.grid[pos] <= 8:
+            if self.visible[pos] == 2:
+                self.flags_remaining += 1
+            self.visible[pos] = 1
+        else:
+            self.visible[pos] = 1
         
 
     def flag(self, pos):
@@ -84,8 +126,9 @@ class GameController():
                 pos = event.pos
                 newpos = (pos[0] - SIDE, pos[1] - SIDE)
                 newpos = (newpos[0]//CELLSIZE, newpos[1]//CELLSIZE)
-                if newpos[0] < 0 or newpos[0] >= GRIDSIZE[0] or newpos[1] < 0 or newpos[1] >= GRIDSIZE[1]:
+                if newpos[0] < 0 or newpos[0] >= GRIDSIZE[1] or newpos[1] < 0 or newpos[1] >= GRIDSIZE[0]:
                     continue
+                newpos = (newpos[1],newpos[0])
                 if event.button == 1:
                     self.show(newpos)
                 elif event.button == 3:
@@ -98,19 +141,20 @@ class GameController():
 
         
         self.graphics()
+        # time.sleep(5)
         self.referee()
 
 
     def graphics(self):
         pygame.Surface.fill(self.screen, (255,255,255))
-        for x in range(GRIDSIZE[0]+1):
-            pygame.draw.line(self.screen, (0,0,0), (SIDE, SIDE+x*CELLSIZE), (SIDE+CELLSIZE*GRIDSIZE[0], SIDE+x*CELLSIZE))
-        for y in range(GRIDSIZE[1]+1):
-            pygame.draw.line(self.screen, (0,0,0), (SIDE+y*CELLSIZE, SIDE), (SIDE+y*CELLSIZE, SIDE+CELLSIZE*GRIDSIZE[1]))
+        for x in range(GRIDSIZE[1]+1):
+            pygame.draw.line(self.screen, (0,0,0), (SIDE+x*CELLSIZE, SIDE), (SIDE+x*CELLSIZE, SIDE+CELLSIZE*GRIDSIZE[0]))
+        for y in range(GRIDSIZE[0]+1):
+            pygame.draw.line(self.screen, (0,0,0), (SIDE, SIDE+y*CELLSIZE), (SIDE+CELLSIZE*GRIDSIZE[1], SIDE+y*CELLSIZE))
 
-        for x,y in listrange(GRIDSIZE):
-            gi = self.grid[x,y]
-            isvisible = self.visible[x,y]
+        for y,x in listrange(GRIDSIZE):
+            gi = self.grid[y,x]
+            isvisible = self.visible[y,x]
 
             if isvisible == 1:
                 text_surface = self.font.render(str(gi), False, (0,0,0))
@@ -121,6 +165,8 @@ class GameController():
 
         text_surface = self.font.render(str(self.flags_remaining), False, (0,0,0))
         self.screen.blit(text_surface, (16,16))
+        text_surface = self.font.render(str(int(time.time()-self.start_time)), False, (0,0,0))
+        self.screen.blit(text_surface, (SIDE+CELLSIZE*GRIDSIZE[1]+16,16))
         pygame.display.update()
 
     def referee(self):
@@ -143,7 +189,9 @@ class GameController():
                     completed = False
 
         if completed:
-            print("The bombs were found. You did not explode!")
+            self.end_time = time.time()
+            self.duration = self.end_time-self.start_time
+            print("The bombs were found in {} seconds. You did not explode! (SEED: {})".format(self.duration, self.seed))
             exit()
 
             
